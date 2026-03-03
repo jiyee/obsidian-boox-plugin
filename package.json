@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-boox-plugin",
+	"name": "boox-highlights-sync",
 	"version": "1.0.0",
-	"description": "Sync Boox ebook highlights and notes into Obsidian.",
+	"description": "Sync Onyx Boox E-Reader highlights and annotations.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
