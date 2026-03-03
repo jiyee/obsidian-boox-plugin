@@ -1,9 +1,9 @@
 {
-	"id": "obsidian-boox-plugin",
+	"id": "boox-highlights-sync",
 	"name": "Boox Highlights Sync",
 	"version": "1.0.0",
 	"minAppVersion": "1.5.0",
-	"description": "Sync Boox ebook highlights and notes into your vault.",
+	"description": "Sync Onyx Boox E-Reader highlights and annotations.",
 	"author": "jiyee",
 	"authorUrl": "https://github.com/jiyee",
 	"fundingUrl": "",
