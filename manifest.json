@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "obsidian-boox-plugin",
+	"name": "Boox Highlights Sync",
 	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"minAppVersion": "1.5.0",
+	"description": "Sync Boox ebook highlights and notes into your vault.",
+	"author": "jiyee",
+	"authorUrl": "https://github.com/jiyee",
+	"fundingUrl": "",
+	"isDesktopOnly": true
 }

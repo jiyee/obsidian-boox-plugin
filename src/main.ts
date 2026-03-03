@@ -1,99 +1,247 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import { Notice, Plugin, requestUrl } from "obsidian";
 
-// Remember to rename these classes and interfaces!
+import { CommandLoginFlow } from "./auth/commandLoginFlow";
+import { BooxAuthManager } from "./auth/manager";
+import { BooxLibraryClient } from "./boox/client";
+import { createObsidianHttpSession } from "./boox/obsidianHttpSession";
+import { registerCommands } from "./commands";
+import { BooxFileManager } from "./file/manager";
+import { DEFAULT_SETTINGS, mergeSettings } from "./settings/defaults";
+import { BooxSettingTab } from "./settings/tab";
+import { BooxSyncManager } from "./sync/manager";
+import type { BooxPluginSettings } from "./types";
+import type { SyncProgressEvent, SyncSummary } from "./types";
+import { SyncReportModal } from "./ui/syncReportModal";
+import { TextInputModal } from "./ui/textInputModal";
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class BooxHighlightsPlugin extends Plugin {
+  settings: BooxPluginSettings = DEFAULT_SETTINGS;
+  private syncManager!: BooxSyncManager;
+  private authManager!: BooxAuthManager;
+  private syncInProgress = false;
+  private syncCancelRequested = false;
+  private ribbonIconEl: HTMLElement | null = null;
+  private statusBarEl: HTMLElement | null = null;
+  private lastSyncSummary: SyncSummary | null = null;
 
-	async onload() {
-		await this.loadSettings();
+  async onload(): Promise<void> {
+    await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
+    const createHttpSession = () => createObsidianHttpSession(requestUrl);
+    const fileManager = new BooxFileManager(this.app.vault, this.app.metadataCache);
+    this.syncManager = new BooxSyncManager(
+      fileManager,
+      (settings) =>
+        new BooxLibraryClient({
+          cloudHost: settings.cloudHost,
+          token: settings.authToken,
+          session: createHttpSession(),
+        })
+    );
+    this.authManager = new BooxAuthManager((options) =>
+      new BooxLibraryClient({
+        cloudHost: options.cloudHost,
+        token: options.token,
+        session: createHttpSession(),
+      })
+    );
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
+    this.ribbonIconEl = this.addRibbonIcon(
+      "book-open-text",
+      "Sync boox highlights and notes",
+      () => {
+        void this.runSync("command");
+      }
+    );
+    this.statusBarEl = this.addStatusBarItem();
+    this.statusBarEl.setText("Boox: idle");
+    this.statusBarEl.addClass("mod-clickable");
+    this.statusBarEl.onClickEvent(() => {
+      this.showLastSyncReport();
+    });
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    registerCommands(this);
+    this.addSettingTab(new BooxSettingTab(this.app, this));
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
-			}
-		});
+    if (this.settings.syncOnStartup) {
+      window.setTimeout(() => {
+        void this.runSync("startup");
+      }, 250);
+    }
+  }
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+  async runSync(trigger: "command" | "settings" | "startup" = "command"): Promise<void> {
+    if (this.syncInProgress) {
+      new Notice("Boox sync is already running.");
+      return;
+    }
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
+    this.syncInProgress = true;
+    this.syncCancelRequested = false;
+    this.ribbonIconEl?.toggleClass("boox-syncing", true);
+    this.setStatusBar("Boox: starting sync...");
+    new Notice(`Boox sync started (${trigger}).`);
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+    try {
+      const summary = await this.syncManager.sync(this.settings, {
+        isCancelled: () => this.syncCancelRequested,
+        onProgress: (event) => {
+          this.updateStatusFromProgress(event);
+        },
+      });
+      this.lastSyncSummary = summary;
+      if (!summary.cancelled && summary.errorMessages.length === 0) {
+        this.settings.lastSyncAt = summary.lastSyncedAt;
+        await this.saveSettings();
+      }
 
-	}
+      if (summary.cancelled) {
+        new Notice(
+          `Boox sync cancelled: ${summary.booksSynced} book(s), ${summary.annotationsSynced} annotation(s).`,
+          7000
+        );
+      } else {
+        const failureSuffix =
+          summary.errorMessages.length === 0
+            ? ""
+            : `, ${summary.errorMessages.length} book(s) failed`;
+        new Notice(
+          `Boox sync complete: ${summary.booksSynced} book(s), ${summary.annotationsSynced} annotation(s)${failureSuffix}.`,
+          7000
+        );
+      }
 
-	onunload() {
-	}
+      if (summary.errorMessages.length > 0 || summary.cancelled) {
+        console.error("Boox sync errors:", summary.errorMessages);
+        this.showSyncReport(summary);
+      }
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
-	}
+      this.setStatusBar(
+        summary.cancelled
+          ? `Boox: cancelled (${summary.booksSynced}/${summary.totalBooks})`
+          : `Boox: synced ${summary.booksSynced}/${summary.totalBooks} books`
+      );
+    } catch (error) {
+      const message = `Boox sync failed: ${String(error)}`;
+      console.error(message, error);
+      new Notice(message, 10000);
+      this.setStatusBar("Boox: sync failed");
+    } finally {
+      this.syncInProgress = false;
+      this.syncCancelRequested = false;
+      this.ribbonIconEl?.toggleClass("boox-syncing", false);
+    }
+  }
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
+  async requestLoginCode(): Promise<void> {
+    try {
+      const flow = this.createCommandLoginFlow();
+      const result = await flow.requestCodeThenVerifyAndSaveToken();
+      if (result.cancelled) {
+        if (result.codeRequested && result.account) {
+          new Notice(`Verification code sent for ${result.account}. Run verify command to finish login.`, 7000);
+        }
+        return;
+      }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+      new Notice("Boox login successful. Token saved.", 7000);
+    } catch (error) {
+      const message = `Request login code failed: ${String(error)}`;
+      console.error(message, error);
+      new Notice(message, 10000);
+    }
+  }
 
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+  async verifyLoginCodeAndSaveToken(): Promise<void> {
+    try {
+      const flow = this.createCommandLoginFlow();
+      const result = await flow.verifyCodeAndSaveToken();
+      if (result.cancelled) {
+        return;
+      }
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
+      new Notice("Boox login successful. Token saved.", 7000);
+    } catch (error) {
+      const message = `Verify code failed: ${String(error)}`;
+      console.error(message, error);
+      new Notice(message, 10000);
+    }
+  }
+
+  cancelSync(): void {
+    if (!this.syncInProgress) {
+      new Notice("No boox sync is currently running.");
+      return;
+    }
+
+    this.syncCancelRequested = true;
+    this.setStatusBar("Boox: cancellation requested...");
+    new Notice("Boox sync cancellation requested.");
+  }
+
+  showLastSyncReport(): void {
+    if (!this.lastSyncSummary) {
+      new Notice("No boox sync report available yet.");
+      return;
+    }
+    this.showSyncReport(this.lastSyncSummary);
+  }
+
+  async updateSettings(update: Partial<BooxPluginSettings>): Promise<void> {
+    this.settings = {
+      ...this.settings,
+      ...update,
+    };
+    await this.saveSettings();
+  }
+
+  private async loadSettings(): Promise<void> {
+    const stored: unknown = await this.loadData();
+    this.settings = mergeSettings(stored);
+  }
+
+  private async saveSettings(): Promise<void> {
+    await this.saveData(this.settings);
+  }
+
+  private showSyncReport(summary: SyncSummary): void {
+    new SyncReportModal(this.app, summary).open();
+  }
+
+  private setStatusBar(text: string): void {
+    this.statusBarEl?.setText(text);
+  }
+
+  private updateStatusFromProgress(event: SyncProgressEvent): void {
+    const prefix = `Boox: ${event.processedBooks}/${event.totalBooks}`;
+    const stats = ` synced ${event.booksSynced}, skipped ${event.skippedBooks}`;
+    this.setStatusBar(`${prefix}${stats} | ${event.message}`);
+  }
+
+  private createCommandLoginFlow(): CommandLoginFlow {
+    return new CommandLoginFlow({
+      getSettings: () => this.settings,
+      updateSettings: async (update) => {
+        await this.updateSettings(update);
+      },
+      promptAccount: async (defaultValue) => {
+        return await new TextInputModal(this.app, {
+          title: "Boox login account",
+          description: "Enter the email or mobile used for boox login.",
+          placeholder: "name@example.com",
+          confirmText: "Continue",
+          defaultValue,
+        }).openAndGetValue();
+      },
+      promptCode: async () => {
+        return await new TextInputModal(this.app, {
+          title: "Verify boox login code",
+          description: "Enter the verification code you received.",
+          placeholder: "123456",
+          confirmText: "Verify",
+        }).openAndGetValue();
+      },
+      authManager: this.authManager,
+    });
+  }
 }

@@ -13,8 +13,10 @@ export default tseslint.config(
 				projectService: {
 					allowDefaultProject: [
 						'eslint.config.js',
-						'manifest.json'
-					]
+						'manifest.json',
+						'tests/*.ts'
+					],
+					maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 32
 				},
 				tsconfigRootDir: import.meta.dirname,
 				extraFileExtensions: ['.json']

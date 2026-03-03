@@ -1,8 +1,16 @@
-/*
+.workspace-ribbon .side-dock-ribbon-action.boox-syncing {
+  color: var(--interactive-accent);
+  animation: boox-sync-pulse 1.2s ease-in-out infinite;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-
-If your plugin does not need CSS, delete this file.
-
-*/
+@keyframes boox-sync-pulse {
+  0% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.55;
+  }
+}

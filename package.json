@@ -1,29 +1,32 @@
 {
-	"name": "obsidian-sample-plugin",
+	"name": "obsidian-boox-plugin",
 	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "Sync Boox ebook highlights and notes into Obsidian.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"test": "vitest run"
 	},
-	"keywords": [],
-	"license": "0-BSD",
+	"keywords": ["Boox", "文石", "ebook", "Obsidian", "Plugin", "Highlights", "Sync"],
+	"license": "MIT",
 	"devDependencies": {
-		"@types/node": "^16.11.6",
+		"@types/node": "^22.13.10",
 		"esbuild": "0.25.5",
 		"eslint-plugin-obsidianmd": "0.1.9",
 		"globals": "14.0.0",
 		"tslib": "2.4.0",
+		"vitest": "^3.0.8",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "8.35.1",
 		"@eslint/js": "9.30.1",
 		"jiti": "2.6.1"
 	},
 	"dependencies": {
-		"obsidian": "latest"
+		"obsidian": "latest",
+		"onyx-send2boox-core": "https://github.com/jiyee/onyx-send2boox-core"
 	}
 }

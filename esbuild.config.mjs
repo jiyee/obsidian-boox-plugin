@@ -17,6 +17,9 @@ const context = await esbuild.context({
 	},
 	entryPoints: ["src/main.ts"],
 	bundle: true,
+	alias: {
+		"onyx-send2boox-core/browser": "./node_modules/onyx-send2boox-core/src/browser.ts",
+	},
 	external: [
 		"obsidian",
 		"electron",
