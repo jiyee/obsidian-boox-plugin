@@ -105,7 +105,7 @@ class ObsidianHttpSession implements BooxHttpSession {
 
     return {
       status: response.status,
-      json: async (): Promise<unknown> => parseResponseJson(response),
+      json: async (): Promise<unknown> => await parseResponseJson(response),
     };
   }
 }
